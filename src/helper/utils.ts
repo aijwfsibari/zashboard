@@ -87,7 +87,20 @@ export const getUrlFromBackend = (end: {
   return `${end.protocol}://${end.host}:${end.port}${end.secondaryPath || ''}`
 }
 
-export const getBackendProbeUrl = (end: Omit<Backend, 'uuid'>) => getUrlFromBackend(end)
+// sing-box 后端复用顶层连接字段作为 gRPC baseUrl(secondaryPath 留空)。
+export const getSingboxUrlFromBackend = (
+  end: Pick<Backend, 'type' | 'protocol' | 'host' | 'port'>,
+) => {
+  if (end.type !== 'singbox' || !end.host) return ''
+  return `${end.protocol}://${end.host}:${end.port}`
+}
+
+export const getSingboxSecret = (end: Pick<Backend, 'type' | 'password'>) =>
+  end.type === 'singbox' ? end.password || '' : ''
+
+// 探测 / 诊断打的那个地址:sing-box 走 gRPC baseUrl,其余走 Clash REST 根路径。
+export const getBackendProbeUrl = (end: Omit<Backend, 'uuid'>) =>
+  end.type === 'singbox' ? getSingboxUrlFromBackend(end) : getUrlFromBackend(end)
 
 export const getLabelFromBackend = (end: Omit<Backend, 'uuid'>) => {
   return end.label || `${end.host}:${end.port}`
@@ -121,10 +134,13 @@ export const getBackendFromUrl = () => {
   )
 
   if (query.has('hostname')) {
-    const type = query.get('type') === 'dae' ? 'dae' : 'clash'
+    // 后端类型:'singbox' 走 sing-box API(gRPC),'dae' 走 dae 原生 API,其余(含缺省)按 'clash' 处理。
+    const typeParam = query.get('type')
+    const type: BackendType =
+      typeParam === 'dae' ? 'dae' : typeParam === 'singbox' ? 'singbox' : 'clash'
 
     return {
-      type: type as BackendType,
+      type,
       protocol: getProtocolFromQuery(query),
       secondaryPath: query.get('secondaryPath') || '',
       host: query.get('hostname') as string,

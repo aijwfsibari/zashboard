@@ -42,7 +42,10 @@
       </div>
     </div>
 
-    <div class="flex flex-col gap-1">
+    <div
+      v-if="model.type === 'clash'"
+      class="flex flex-col gap-1"
+    >
       <label class="flex items-center gap-1 text-sm">
         <span>{{ $t('secondaryPath') }} ({{ $t('optional') }})</span>
         <span
@@ -109,6 +112,7 @@ const model = defineModel<Omit<Backend, 'uuid'>>({ required: true })
 const backendTypeOptions = [
   { value: 'clash' as BackendType, label: 'Clash' },
   { value: 'dae' as BackendType, label: 'dae' },
+  { value: 'singbox' as BackendType, label: 'sing-box' },
 ]
 
 const isDae = computed(() => model.value.type === 'dae')

@@ -5,19 +5,51 @@ import { v4 as uuid } from 'uuid'
 import { computed, ref } from 'vue'
 import { sourceIPLabelList } from './settings'
 
-type LegacyBackend = Omit<Partial<Backend>, 'type'> & { type?: string; singboxChannel?: unknown }
+// 旧版本的后端结构:没有 `type` 字段,且 sing-box 以附属通道 `singboxChannel` 存在。
+type LegacySingboxChannel = {
+  protocol?: string
+  host?: string
+  port?: string
+  secret?: string
+}
+type LegacyBackend = Omit<Partial<Backend>, 'type'> & {
+  type?: string
+  singboxChannel?: LegacySingboxChannel
+}
 
-const isLegacyBackend = (item: LegacyBackend) =>
-  !item.type || 'singboxChannel' in item || item.type === 'singbox'
+// 一次性迁移:补全 `type`;把旧的 singboxChannel 拆分为独立的 sing-box 后端。
+const migrateBackendList = (list: LegacyBackend[]): Backend[] => {
+  const migrated: Backend[] = []
 
-const migrateBackendList = (list: LegacyBackend[]): Backend[] =>
-  list
-    .filter((item) => item.type !== 'singbox')
-    .map((item) => ({ ...(omit(item, 'singboxChannel') as Backend), type: 'clash' }))
+  for (const item of list) {
+    const channel = item.singboxChannel
+    const base = omit(item, 'singboxChannel') as Backend
+
+    migrated.push({
+      ...base,
+      type: (base.type as Backend['type']) ?? 'clash',
+    })
+
+    if (channel?.host) {
+      migrated.push({
+        type: 'singbox',
+        protocol: channel.protocol || 'http',
+        host: channel.host,
+        port: channel.port || '9090',
+        secondaryPath: '',
+        password: channel.secret || '',
+        uuid: uuid(),
+        label: base.label ? `${base.label} (sing-box)` : undefined,
+      })
+    }
+  }
+
+  return migrated
+}
 
 export const backendList = useStorage<Backend[]>('setup/api-list', [])
 
-if ((backendList.value as LegacyBackend[]).some(isLegacyBackend)) {
+if (backendList.value.some((item) => !item.type || 'singboxChannel' in item)) {
   backendList.value = migrateBackendList(backendList.value as LegacyBackend[])
 }
 

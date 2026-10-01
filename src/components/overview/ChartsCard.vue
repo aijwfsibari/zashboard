@@ -65,6 +65,7 @@
         </div>
         <div class="text-base-content/50 flex items-center justify-between gap-2 text-xs">
           <span>{{ $t('memoryUsage') }} {{ memoryStr }}</span>
+          <span v-if="can('goroutines')">{{ $t('goroutines') }} {{ goroutines }}</span>
         </div>
       </div>
     </div>
@@ -72,11 +73,13 @@
 </template>
 
 <script setup lang="ts">
+import { can } from '@/assembly/backend'
 import { activeConnections, downloadTotal, uploadTotal } from '@/assembly/connections'
 import {
   connectionsHistory,
   downloadSpeed,
   downloadSpeedHistory,
+  goroutines,
   memory,
   timeSaved,
   uploadSpeed,

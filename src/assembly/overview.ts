@@ -29,6 +29,7 @@ const makeInitValue = (): HistoryPoint[] => {
 }
 
 export const memory = ref<number>(0)
+export const goroutines = ref<number>(0)
 export const memoryHistory = ref(makeInitValue())
 export const connectionsHistory = ref(makeInitValue())
 
@@ -80,6 +81,7 @@ export const initSatistic = () => {
       }
 
       memory.value = data.inuse
+      goroutines.value = data.goroutines ?? 0
       memoryHistory.value.push({
         value: [timestamp, data.inuse],
         name: timestamp,
@@ -104,6 +106,8 @@ export const initSatistic = () => {
 
       downloadSpeed.value = data.down
       uploadSpeed.value = data.up
+      // sing-box 的总量随统计流下发;clash 的总量由连接 WS 消息携带,
+      // 在 assembly/connections 写入,此处字段缺失时不覆盖。
       if (data.downTotal != null && data.upTotal != null) {
         downloadTotal.value = data.downTotal
         uploadTotal.value = data.upTotal
@@ -135,6 +139,7 @@ export const stopSatistic = () => {
   cancel?.()
   cancel = undefined
   memory.value = 0
+  goroutines.value = 0
   downloadSpeed.value = 0
   uploadSpeed.value = 0
   downloadSpeedHistory.value = makeInitValue()

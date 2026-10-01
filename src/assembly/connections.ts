@@ -189,6 +189,12 @@ export const getConnectionDisplayValue = (
       return accessor.remoteAddress(connection) || '-'
     case CONNECTIONS_TABLE_ACCESSOR_KEY.InboundUser:
       return accessor.inboundUser(connection)
+    case CONNECTIONS_TABLE_ACCESSOR_KEY.Protocol:
+      return accessor.protocol?.(connection) || '-'
+    case CONNECTIONS_TABLE_ACCESSOR_KEY.OutboundType:
+      return accessor.outboundType?.(connection) || '-'
+    case CONNECTIONS_TABLE_ACCESSOR_KEY.FromOutbound:
+      return accessor.fromOutbound?.(connection) || '-'
     case CONNECTIONS_TABLE_ACCESSOR_KEY.Close:
       return ''
   }

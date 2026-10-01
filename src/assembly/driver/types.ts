@@ -51,6 +51,8 @@ export interface TrafficSample {
 
 export interface MemorySample {
   inuse: number
+  // sing-box 的 Status 流附带 goroutine 数;clash / dae 无此字段。
+  goroutines?: number
 }
 
 export interface HistorySample {
@@ -90,6 +92,10 @@ export interface ConnectionAccessor {
   remoteAddress(connection: Connection): string
   isDirect(connection: Connection): boolean
   smartBlock(connection: Connection): string | undefined
+  // sing-box 原生连接字段;clash / dae 无对应数据,返回空串(展示为 '-')。
+  protocol?(connection: Connection): string
+  outboundType?(connection: Connection): string
+  fromOutbound?(connection: Connection): string
 }
 
 export interface SystemDriver {
@@ -100,6 +106,8 @@ export interface SystemDriver {
     authenticate?: boolean,
   ): Promise<ProbeResult>
   fetchVersion(): Promise<string>
+  // sing-box API(GetStartedAt)独有的内核启动时刻(ms epoch);其余后端无此能力。
+  startedAt?(): Promise<number>
   upgradeCore(channel: 'release' | 'alpha' | 'auto'): Promise<void>
   restartCore(): Promise<void>
   upgradeUI(): Promise<void>
