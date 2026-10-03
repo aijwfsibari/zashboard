@@ -163,7 +163,9 @@ export type Log = {
   payload: string
 }
 
-export type LogWithSeq = Log & { seq: number; time: string }
+// payload 保留后端原始内容(sing-box 会带 ANSI 颜色码),供渲染用;
+// visiblePayload 是剥离转义序列后的可见文本,搜索 / 隐藏 / 分类一律以它为准。
+export type LogWithSeq = Log & { seq: number; time: string; visiblePayload: string }
 
 export type DNSQuery = {
   AD: boolean

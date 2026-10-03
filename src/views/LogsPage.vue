@@ -87,13 +87,15 @@ const renderLogs = computed(() => {
 
   if (logFilter.value || logTypeFilter.value) {
     renderLogs = logs.value.filter((log) => {
-      if (searchRegex && !searchRegex.testAny([log.payload, log.time, log.type])) {
+      // 一律匹配剥离掉 ANSI 转义序列的可见文本,否则搜 "208" 会命中颜色码 38;5;208,
+      // 而跨颜色码的连写又搜不到。
+      if (searchRegex && !searchRegex.testAny([log.visiblePayload, log.time, log.type])) {
         return false
       }
 
       if (
         logTypeFilter.value &&
-        !(log.payload.includes(logTypeFilter.value) || log.type === logTypeFilter.value)
+        !(log.visiblePayload.includes(logTypeFilter.value) || log.type === logTypeFilter.value)
       ) {
         return false
       }
@@ -107,7 +109,7 @@ const renderLogs = computed(() => {
 
     if (hideRegex) {
       renderLogs = renderLogs.filter((log) => {
-        return !hideRegex.testAny([log.payload, log.time, log.type])
+        return !hideRegex.testAny([log.visiblePayload, log.time, log.type])
       })
     }
   }

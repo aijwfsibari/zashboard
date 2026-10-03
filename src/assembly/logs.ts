@@ -1,5 +1,6 @@
 import { useStorage } from '@/composables/use-storage'
 import { LOG_LEVEL } from '@/constant'
+import { stripAnsi } from '@/helper/ansi'
 import { logRetentionLimit, sourceIPLabelList } from '@/store/settings'
 import { activeBackend } from '@/store/setup'
 import type { Log, LogWithSeq } from '@/types'
@@ -83,6 +84,7 @@ export const initLogs = () => {
       pending.unshift({
         ...data,
         payload,
+        visiblePayload: stripAnsi(payload),
         time: dayjs().format('HH:mm:ss'),
         seq: seq++,
       })

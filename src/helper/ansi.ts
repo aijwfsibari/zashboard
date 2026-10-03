@@ -1,8 +1,16 @@
 import type { CSSProperties } from 'vue'
+import { getSearchTextParts } from './search'
 import type { ThemeColorScheme } from './theme'
 
 export type AnsiTextSegment = {
   text: string
+  style?: CSSProperties
+}
+
+// ANSI 分段 + 搜索命中的叠加结果,交给组件直接渲染。
+export type AnsiHighlightSegment = {
+  text: string
+  matched: boolean
   style?: CSSProperties
 }
 
@@ -203,8 +211,11 @@ export const parseAnsiText = (value: string, colorScheme: ThemeColorScheme): Ans
   const state: AnsiState = {}
   let cursor = 0
   let match: RegExpExecArray | null
+  // ANSI_PATTERN 是模块级 /g 正则,exec 会推进 lastIndex;这里用独立实例,
+  // 免得和 stripAnsi 或嵌套解析互相干扰。
+  const pattern = new RegExp(ANSI_PATTERN.source, 'g')
 
-  while ((match = ANSI_PATTERN.exec(value))) {
+  while ((match = pattern.exec(value))) {
     if (match.index > cursor) {
       segments.push({ text: value.slice(cursor, match.index), style: stateToStyle(state) })
     }
@@ -219,4 +230,47 @@ export const parseAnsiText = (value: string, colorScheme: ThemeColorScheme): Ans
   }
 
   return segments.length ? segments : [{ text: value }]
+}
+
+// 把 ANSI 分段与搜索命中叠加:先在剥离掉转义序列的可见文本上定位命中,再按分段边界切开。
+// 这样判定的基准与日志过滤(LogsPage 用 visiblePayload)完全一致,跨颜色边界的命中
+// 也不会出现「过滤命中了、界面上却没高亮」。
+export const parseAnsiHighlight = (
+  value: string,
+  filter: string,
+  colorScheme: ThemeColorScheme,
+): AnsiHighlightSegment[] => {
+  const segments = parseAnsiText(value, colorScheme)
+  const visible = segments.map((segment) => segment.text).join('')
+  const parts = getSearchTextParts(visible, filter)
+  const highlighted: AnsiHighlightSegment[] = []
+  let segmentIndex = 0
+  let offsetInSegment = 0
+
+  for (const part of parts) {
+    let remaining = part.text
+
+    while (remaining && segmentIndex < segments.length) {
+      const segment = segments[segmentIndex]
+      const length = Math.min(segment.text.length - offsetInSegment, remaining.length)
+
+      if (length > 0) {
+        highlighted.push({
+          text: remaining.slice(0, length),
+          matched: part.matched,
+          style: segment.style,
+        })
+      }
+
+      remaining = remaining.slice(length)
+      offsetInSegment += length
+
+      if (offsetInSegment >= segment.text.length) {
+        segmentIndex++
+        offsetInSegment = 0
+      }
+    }
+  }
+
+  return highlighted
 }

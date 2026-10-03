@@ -32,6 +32,7 @@
       <HighlightText
         :text="log.payload"
         :filter="logFilter"
+        ansi
       />
     </div>
   </div>

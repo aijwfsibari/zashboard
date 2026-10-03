@@ -57,9 +57,10 @@ export default defineComponent({
 
       if (can('logTypeFilter')) {
         for (const log of logs.value) {
-          const startIndex = log.payload.startsWith('[') ? log.payload.indexOf(']') + 2 : 0
-          const endIndex = log.payload.indexOf(':', startIndex)
-          const type = log.payload.slice(startIndex, endIndex + 1)
+          const { visiblePayload } = log
+          const startIndex = visiblePayload.startsWith('[') ? visiblePayload.indexOf(']') + 2 : 0
+          const endIndex = visiblePayload.indexOf(':', startIndex)
+          const type = visiblePayload.slice(startIndex, endIndex + 1)
 
           if (!types.includes(type)) {
             types.push(type)
@@ -71,8 +72,9 @@ export default defineComponent({
         }
       } else {
         for (const log of logs.value) {
-          const index = log.payload.indexOf(' ')
-          const type = index === -1 ? log.payload : log.payload.slice(0, index)
+          const { visiblePayload } = log
+          const index = visiblePayload.indexOf(' ')
+          const type = index === -1 ? visiblePayload : visiblePayload.slice(0, index)
 
           if (!types.includes(type)) {
             types.push(type)
