@@ -100,17 +100,20 @@ const testLatencyOneByOneWithTip = async (
   await Promise.allSettled(
     nodes.map((name) =>
       limiter(async () => {
-        try {
-          const delay = await latencyTestForSingle(
-            name,
-            url,
-            Math.min(2000, speedtestTimeout.value),
-          )
+        let delay = NOT_CONNECTED
 
-          setHistory(name, delay, groupName)
+        try {
+          delay = await latencyTestForSingle(name, url, Math.min(2000, speedtestTimeout.value))
         } catch {
-          testFailed++
-          setHistory(name, NOT_CONNECTED, groupName)
+          // 请求失败 / 后端拒绝:按未连通处理
+          delay = NOT_CONNECTED
+        }
+
+        try {
+          // 节点自身失败在内核侧表现为「没有结果」,驱动以 delay=0 返回(clash 亦然),
+          // 所以成败要看结果值,而不能只看有没有抛异常,否则失败节点会被算成成功。
+          if (delay === NOT_CONNECTED) testFailed++
+          setHistory(name, delay, groupName)
         } finally {
           testDone++
           showNotification({

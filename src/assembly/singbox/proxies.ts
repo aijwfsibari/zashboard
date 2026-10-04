@@ -10,7 +10,7 @@ import { iconReflectList, speedtestTimeout } from '@/store/settings'
 import { activeBackend } from '@/store/setup'
 import type { Proxy } from '@/types'
 import type { ProxiesDriver, ProxiesPayload } from '../driver/types'
-import { proxyGroupList, proxyMap, proxyProviederList } from '../proxies/state'
+import { isLatencyTestable, proxyGroupList, proxyMap, proxyProviederList } from '../proxies/state'
 
 const getHistoryFromItem = (item: GroupItem): Proxy['history'] =>
   item.urlTestDelay > 0
@@ -40,8 +40,11 @@ let sessionKey = ''
 let ready: Promise<void> | null = null
 
 // 一次 URLTest 的「结果指纹」:sing-box 把测速历史(时间戳 + 延迟)随
-// SubscribeGroups / SubscribeOutbounds 推送。测速前记下指纹，只有指纹变了才说明
-// 本次结果真的到了 —— 否则任意一次无关推送都会把等待提前唤醒。
+// SubscribeGroups / SubscribeOutbounds 推送，只保留最新一条且时间戳为秒级。
+// 测速前记下指纹，只有指纹变了才说明本次结果真的到了。
+//
+// 注意:测速失败时内核会「删除」历史。若该节点此前从未测出过结果，删除前后快照
+// 都是空，指纹不变 —— 这种情况从流里无法察觉，只能等测试预算耗尽后按失败结算。
 type URLTestStamp = {
   time: bigint
   delay: number
@@ -49,19 +52,11 @@ type URLTestStamp = {
 
 const stampKey = (stamp?: URLTestStamp) => (stamp ? `${stamp.time}:${stamp.delay}` : '')
 
-// 组测速由内核并发测试所有成员，结果会分几批推送。等所有成员都变化可能被
-// 「首测即失败、历史一直为空」的成员拖到超时，因此成员分批到达时用一小段静置
-// 时间收尾：期间再有新结果就重新计时。
-const URL_TEST_SETTLE_DELAY = 500
-
 type URLTestWaiter = {
-  // 本次测速要等到的目标(单节点是自身 tag，组是全部成员 tag)。
+  // 本次测速要等到的目标(单节点是自身 tag，组是展开后的全部叶子成员)。
   targets: string[]
   // 登记等待时各目标的结果指纹。
   baseline: Map<string, string>
-  // 仅部分目标变化时，静置多久后收尾；单节点 / 全部变化为 0(立即结算)。
-  settleDelay: number
-  settleTimer: ReturnType<typeof setTimeout> | null
   resolve: () => void
   reject: (reason: Error) => void
   timer: ReturnType<typeof setTimeout>
@@ -90,66 +85,63 @@ const collectStamps = () => {
 const removeURLTestWaiter = (waiter: URLTestWaiter) => {
   urlTestWaiters.delete(waiter)
   clearTimeout(waiter.timer)
-  if (waiter.settleTimer) clearTimeout(waiter.settleTimer)
 }
 
 const resolveURLTestWaiter = (waiter: URLTestWaiter) => {
   if (!urlTestWaiters.delete(waiter)) return
 
   clearTimeout(waiter.timer)
-  if (waiter.settleTimer) clearTimeout(waiter.settleTimer)
   waiter.resolve()
 }
 
-// 流推送后结算等待：只有目标自身的结果变化才算数；部分目标变化时再静置片刻。
+// 流推送后结算等待:必须「本次测速的全部目标都已变化」才算整组测完。
+// 不能用「某个目标一变就静置收尾」—— 内核按并发 10 分批测成员，提前结算会把
+// 后面批次的结果漏掉，转圈提前结束、汇总数量也就跟着不对。
 const settleURLTestWaiters = () => {
   if (!urlTestWaiters.size) return
 
   const stamps = collectStamps()
 
   for (const waiter of [...urlTestWaiters]) {
-    const changed = waiter.targets.filter(
+    const settled = waiter.targets.every(
       (tag) => stampKey(stamps.get(tag)) !== waiter.baseline.get(tag),
     )
 
-    if (!changed.length) continue
-    if (changed.length === waiter.targets.length || waiter.settleDelay <= 0) {
-      resolveURLTestWaiter(waiter)
-      continue
-    }
-
-    if (waiter.settleTimer) clearTimeout(waiter.settleTimer)
-    waiter.settleTimer = setTimeout(() => resolveURLTestWaiter(waiter), waiter.settleDelay)
+    if (settled) resolveURLTestWaiter(waiter)
   }
 }
 
 const rejectURLTestWaiters = (reason: Error) => {
   for (const waiter of urlTestWaiters) {
     clearTimeout(waiter.timer)
-    if (waiter.settleTimer) clearTimeout(waiter.settleTimer)
     waiter.reject(reason)
   }
   urlTestWaiters.clear()
 }
 
-const waitForURLTestResult = (
-  timeout: number,
-  targets: string[],
-  baseline: Map<string, string>,
-  settleDelay = 0,
-) => {
+// 面板侧的测试预算:sing-box 的 URLTest RPC 不接受超时参数(内核自己用 TCPTimeout，
+// 15s)，所以这里用面板的「测速超时」设置加 1s 余量作为等待上限，并保留 5s 下限，
+// 与 clash 路径 Math.max(5000, speedtestTimeout) 的语义一致。预算耗尽仍未等到指纹
+// 变化时，按「本次测试已结束但没拿到新结果」结算(失败节点即 NOT_CONNECTED)，而不是
+// 抛错 —— 节点自己连不上不是面板的请求错误。clash 驱动同样是把失败节点作为 delay=0
+// 返回，共享的 assembly/proxies/latency 也按此假设处理。若内核在预算之后才推来结果，
+// 订阅仍会照常回填界面。
+const URL_TEST_BUDGET_FLOOR = 5000
+const URL_TEST_BUDGET_MARGIN = 1000
+
+const urlTestBudget = (timeout: number) =>
+  Math.max(URL_TEST_BUDGET_FLOOR, timeout) + URL_TEST_BUDGET_MARGIN
+
+const waitForURLTestResult = (targets: string[], baseline: Map<string, string>, budget: number) => {
   let waiter!: URLTestWaiter
   const promise = new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(
-      () => {
-        if (!urlTestWaiters.has(waiter)) return
-        removeURLTestWaiter(waiter)
-        reject(new Error('sing-box URL test result timeout'))
-      },
-      Math.max(5000, timeout) + 1000,
-    )
+    const timer = setTimeout(() => {
+      if (!urlTestWaiters.has(waiter)) return
+      removeURLTestWaiter(waiter)
+      resolve()
+    }, budget)
 
-    waiter = { targets, baseline, settleDelay, settleTimer: null, resolve, reject, timer }
+    waiter = { targets, baseline, resolve, reject, timer }
     urlTestWaiters.add(waiter)
   })
 
@@ -288,6 +280,31 @@ const ensureSession = () => {
 // 在后端切换 / 登出时丢弃订阅。
 export const resetProxies = () => stop()
 
+// 内核的组测速会递归测试成员(含嵌套组里的叶子)，按并发 10 分批。这里把等待目标
+// 展开成「真正会产出历史的叶子」:嵌套组展开、reject/block 这类永远测不出结果的
+// 成员剔除 —— 否则等待器会空等它们直到预算耗尽，或者反过来提前结算。
+const collectURLTestTargets = (outboundTag: string) => {
+  const group = groups.get(outboundTag)
+  if (!group) return [outboundTag]
+
+  const targets: string[] = []
+  const seen = new Set<string>()
+  const visit = (tag: string) => {
+    if (seen.has(tag)) return
+    seen.add(tag)
+
+    const node = proxyMap.value[tag]
+    if (node?.all?.length) {
+      node.all.forEach(visit)
+      return
+    }
+    if (isLatencyTestable(tag)) targets.push(tag)
+  }
+  group.items.forEach((item) => visit(item.tag))
+
+  return targets.length ? targets : [outboundTag]
+}
+
 const runURLTest = async (outboundTag: string, timeout = speedtestTimeout.value) => {
   ensureSession()
   if (ready) await ready
@@ -295,23 +312,31 @@ const runURLTest = async (outboundTag: string, timeout = speedtestTimeout.value)
   const client = getSingboxClient()?.client
   if (!client) return
 
-  // 组测速要等组内成员逐个回填，单测只等自身 tag。先记下测速前的结果指纹，
-  // 之后只有指纹变化才说明本次结果到了 —— 避免别处推送触发误判。
-  const members = groups.get(outboundTag)?.items.map((item) => item.tag)
-  const targets = members?.length ? members : [outboundTag]
+  // 先记下测速前的结果指纹，之后只有指纹变化才说明本次结果到了 —— 避免别处推送
+  // 触发误判。组测速要等展开后的全部叶子，单测只等自身 tag。
+  const targets = collectURLTestTargets(outboundTag)
   const stamps = collectStamps()
   const baseline = new Map(targets.map((tag) => [tag, stampKey(stamps.get(tag))]))
+  const budget = urlTestBudget(timeout)
 
   // 先注册等待，避免测速很快时结果推送早于一元 RPC 响应而丢失。
-  const result = waitForURLTestResult(
-    timeout,
-    targets,
-    baseline,
-    members?.length ? URL_TEST_SETTLE_DELAY : 0,
-  )
+  const result = waitForURLTestResult(targets, baseline, budget)
+  // 一元 RPC 只负责「启动任务」，结果靠订阅推送回收。给它一个硬上限:即使调用卡住，
+  // 也不能把测速中的转圈状态永远吊住。
+  const controller = new AbortController()
+  const abortTimer = setTimeout(() => controller.abort(), budget + URL_TEST_BUDGET_MARGIN)
   try {
-    await Promise.all([client.uRLTest({ outboundTag }), result.promise])
+    await Promise.all([
+      client.uRLTest({ outboundTag }, { signal: controller.signal }).catch((e) => {
+        // 预算耗尽后是我们主动中止的:内核侧测试照常跑完、结果仍会随流回填，
+        // 不算请求失败，交给等待器结算。
+        if (controller.signal.aborted) return
+        throw e
+      }),
+      result.promise,
+    ])
   } finally {
+    clearTimeout(abortTimer)
     result.cancel()
   }
 }
