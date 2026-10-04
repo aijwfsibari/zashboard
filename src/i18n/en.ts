@@ -409,7 +409,7 @@ const en = {
   manual: 'Manual',
   tableWidthMode: 'Table width mode',
   testFailed: 'Test failed',
-  testFinishedTip: '{name}\n{number}/{total} tests completed',
+  testProgressTip: '{name}\n{number}/{total} tests in progress',
   testFinishedResultTip: '{name}\nTest completed: {success} succeeded, {failed} timed out',
   testFailedTip: '{name}\nTest failed',
   updateFinishedTip: '{number} update(s) finished',

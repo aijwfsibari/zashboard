@@ -412,7 +412,7 @@ const ru: LANG_MESSAGE = {
   manual: 'Ручной',
   tableWidthMode: 'Режим ширины таблицы',
   testFailed: 'Тест задержки таймаут',
-  testFinishedTip: '{name}\n{number}/{total} Тест завершен',
+  testProgressTip: '{name}\n{number}/{total} Идет тестирование',
   testFinishedResultTip: '{name}\nТест завершен: {success} Успешно, {failed} Таймаут',
   testFailedTip: '{name}\nТест задержки таймаут',
   updateFinishedTip: '{number} Обновление завершено',

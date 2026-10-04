@@ -405,7 +405,7 @@ const zhTW: LANG_MESSAGE = {
   manual: '手動',
   tableWidthMode: '表格寬度模式',
   testFailed: '測速超時',
-  testFinishedTip: '{name}\n{number}/{total} 測試完成',
+  testProgressTip: '{name}\n{number}/{total} 正在測速',
   testFinishedResultTip: '{name}\n測試完成: {success} 成功，{failed} 超時',
   testFailedTip: '{name}\n測速超時',
   updateFinishedTip: '{number} 更新完成',

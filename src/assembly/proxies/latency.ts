@@ -117,7 +117,7 @@ const testLatencyOneByOneWithTip = async (
         } finally {
           testDone++
           showNotification({
-            content: 'testFinishedTip',
+            content: 'testProgressTip',
             key: TIP_KEY + tipName,
             params: {
               name: getNameForNotification(tipName, url),
